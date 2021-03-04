@@ -32,6 +32,7 @@
 #define DECODER_420A              18
 #define DECODER_WEBER             19
 #define DECODER_ST170             20
+#define DECODER_ROVERMEMS		  21	
 
 static inline void addToothLogEntry(unsigned long, bool);
 void loggerPrimaryISR();
@@ -185,6 +186,13 @@ uint16_t getRPM_FordST170();
 int getCrankAngle_FordST170();
 void triggerSetEndTeeth_FordST170();
 
+void triggerSetup_RoverMEMS();
+void triggerPri_RoverMEMS();
+void triggerSec_RoverMEMS();
+uint16_t getRPM_RoverMEMS();
+int getCrankAngle_RoverMEMS();
+void triggerSetEndTeeth_RoverMEMS();
+
 
 extern void (*triggerHandler)(); //Pointer for the trigger function (Gets pointed to the relevant decoder)
 extern void (*triggerSecondaryHandler)(); //Pointer for the secondary trigger function (Gets pointed to the relevant decoder)
@@ -258,5 +266,12 @@ extern int16_t toothAngles[24]; //An array for storing fixed tooth angles. Curre
 
 #define TOOTH_CRANK 0
 #define TOOTH_CAM   1
+
+// used by the ROVER MEMS pattern
+#define ID_TOOTH_PATTERN 0 // have we identified teeth to skip for calculating RPM?
+#define SKIP_TOOTH1 1
+#define SKIP_TOOTH2 2
+#define SKIP_TOOTH3 3
+#define SKIP_TOOTH4 4
 
 #endif
