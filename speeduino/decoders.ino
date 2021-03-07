@@ -4360,7 +4360,7 @@ uint16_t getRPM_RoverMEMS()
         (toothCurrentCount != toothAngles[SKIP_TOOTH2]) && 
         (toothCurrentCount != toothAngles[SKIP_TOOTH3]) && 
         (toothCurrentCount != toothAngles[SKIP_TOOTH4]) )
-    { tempRPM = crankingGetRPM(36); }
+    { tempRPM = crankingGetRPM(36,360); }
     else
     { tempRPM = currentStatus.RPM; } //Can't do per tooth RPM as the missing tooth messes the calculation
   }
