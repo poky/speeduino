@@ -1,3 +1,6 @@
+//#define MJR 1
+//#define MJRi 1
+
 /*
 Speeduino - Simple engine management for the Arduino Mega 2560 platform
 Copyright (C) Josh Stewart
@@ -2768,8 +2771,9 @@ void triggerSetup_Subaru67()
 void triggerPri_Subaru67()
 {
    curTime = micros();
-   //curGap = curTime - toothLastToothTime;
-   //if ( curGap < triggerFilterTime ) { return; }
+   curGap = curTime - toothLastToothTime;
+   if ( curGap < triggerFilterTime ) { return; }
+   
    toothCurrentCount++; //Increment the tooth counter
    toothSystemCount++; //Used to count the number of primary pulses that have occurred since the last secondary. Is part of the noise filtering system.
    validTrigger = true; //Flag this pulse as being a valid trigger (ie that it passed filters)
@@ -4046,4 +4050,326 @@ void triggerSetEndTeeth_FordST170()
   // Removed ign channels >4 as an ST170 engine is a 4 cylinder
 
   lastToothCalcAdvance = currentStatus.advance;
+}
+
+
+/* -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Name: Subaru Impreza 1.6 fwd 1995
+Desc:
+Note:
+*/
+
+volatile unsigned int gapLastSmallestTooth =0, gapNextSmallestTooth=0; 
+
+void triggerSetup_SubaruImpreza()
+{
+// missing tooth  MAX_STALL_TIME = (3333UL * triggerToothAngle * (configPage4.triggerMissingTeeth + 1)); //Minimum 50rpm. (3333uS is the time per degree at 50rpm)
+// original MAX_STALL_TIME = (3333UL * 93); //Minimum 50rpm. (3333uS is the time per degree at 50rpm)
+MAX_STALL_TIME = 500000UL; // should be 0.5 seconds, normally 0.5 sec
+
+
+  triggerFilterTime = (1000000 / (2000 / 60 * 360UL)); //Trigger filter time is the shortest possible time (in uS) that there can be between crank teeth set at 2000 rpm for engine start, set within main code once engine starts. Any pulses that occur faster than this time will be disgarded as noise
+  triggerSecFilterTime = 0;
+  secondaryToothCount = 0; //Initially set to 0 prior to calculating the secondary window duration
+  secondDerivEnabled = false;
+  decoderIsSequential = false;
+  toothCurrentCount = 1;
+  triggerToothAngle = 2;
+  triggerToothAngleIsCorrect = false;
+  toothSystemCount = 0;
+  gapNextSmallestTooth = 40000000;
+  gapLastSmallestTooth = 40000000;
+
+
+
+  toothAngles[0] = 5;   //tooth #1 5   degrees 
+  toothAngles[1] = 83;  //tooth #2 83  degrees
+  toothAngles[2] = 115; //tooth #3 115 degrees
+  toothAngles[3] = 170; //tooth #4 170 degrees
+  toothAngles[4] = 263; //t5 263
+  toothAngles[5] = 295; //t6 295
+  toothAngles[6] = 350; //tooth #7 350 degrees
+
+//  toothAngles[7] = toothAngles[4] + 180;  //t1 350
+//  toothAngles[8] = toothAngles[1] + 360;  //t2 365
+//  toothAngles[9] = toothAngles[2] + 360;  //t3 443
+//  toothAngles[10] = toothAngles[3] + 360; //t4 475
+//  toothAngles[11] = toothAngles[4] + 360; //t5 530
+//  toothAngles[12] = toothAngles[2] + 540; //t6 623
+//  toothAngles[13] = toothAngles[3] + 540; //t7 655
+}
+
+volatile long longTemp = 0;
+
+void triggerPri_SubaruImpreza()
+{
+  curTime = micros();
+  curGap = curTime - toothLastToothTime;
+  if ( curGap < triggerFilterTime ) { return; }
+   
+  toothCurrentCount++; //Increment the tooth counter
+  toothSystemCount++; //Used to count the number of primary pulses that have occurred since the last secondary. Is part of the noise filtering system.
+  validTrigger = true; //Flag this pulse as being a valid trigger (ie that it passed filters)
+
+  toothLastMinusOneToothTime = toothLastToothTime;
+  toothLastToothTime = curTime;
+
+#ifdef MJR
+  Serial3.print("TCur>"); Serial3.print(toothCurrentCount); Serial3.print(" TSys >"); Serial3.print(toothSystemCount);    Serial3.print(" CG>");Serial3.print(curGap); 
+#endif
+
+#ifdef MJRi
+  Serial3.print("TCur>"); Serial3.print(toothCurrentCount); Serial3.print(" TSys >"); Serial3.print(toothSystemCount);    Serial3.print(" CG>");Serial3.print(curGap); 
+#endif
+
+
+
+  // is gap within 25% of previous smallest gap - covers engine speeding up / slowing down, next tooth is 50% away so 25% is safe
+  if (curGap < (gapLastSmallestTooth + (gapLastSmallestTooth>>2) ) )
+  {
+    #ifdef MJR
+    Serial3.print(" GapFound "); 
+    Serial3.println("");
+    #endif
+
+    //Need to update the trigger teeth as timings will change as engine speeds up / slows down
+    if(curGap < gapNextSmallestTooth)
+    {
+      gapNextSmallestTooth = curGap;
+      #ifdef MJR
+      Serial3.print(" LstMid>"); Serial3.print(gapLastSmallestTooth);
+      Serial3.print(" NxtSm>"); Serial3.print(gapNextSmallestTooth);
+      Serial3.println("");
+      #endif
+    }
+
+ 
+    if(currentStatus.startRevolutions>0)
+      { currentStatus.hasSync = true; }
+    else
+    {
+        // first rotation, update gaps as we have no history information
+        gapLastSmallestTooth = curGap;
+    }
+
+
+    // check if we've had 1 complete rotation, if we have we must be at tooth one, otherwise we're still finding smallest gap
+    if(toothCurrentCount >  7)
+    {
+      #ifdef MJR
+      Serial3.print ("** ROTATION **");
+      Serial3.print(" Revs>"); Serial3.print(currentStatus.startRevolutions);
+      Serial3.println("");
+      #endif
+
+      currentStatus.hasSync = true;
+      toothCurrentCount = 1;
+      toothSystemCount = 0;
+      toothOneMinusOneTime = toothOneTime;
+      toothOneTime = curTime;
+      currentStatus.startRevolutions++; //Counter
+      gapLastSmallestTooth = gapNextSmallestTooth;
+      gapNextSmallestTooth = 40000000;
+
+      //Recalc the new filter value
+      setFilter(curGap);
+    }
+
+  }  
+
+  
+
+  if (toothSystemCount > 7)
+  {
+    // only 7 teeth on the crank therefore must have lost sync if we've done more than 1 reveolution (1 revolution needed to setup gaps) without finding a gap
+    currentStatus.hasSync = false;
+    #ifdef MJR
+    Serial3.println("");
+    Serial3.println("**Lost Sync**");
+    #endif
+    toothCurrentCount=0;
+    toothSystemCount = 0;
+    gapNextSmallestTooth = 40000000;
+    gapLastSmallestTooth = 40000000;
+    currentStatus.startRevolutions = 0;
+  }
+
+
+  if ( currentStatus.hasSync == false )
+  {
+    //Almost certainly due to noise or cranking stop/start
+    #ifdef MJR
+    Serial3.println("**Missing Sync**");
+    #endif
+
+    currentStatus.hasSync = false;
+    triggerToothAngleIsCorrect = false;
+    currentStatus.syncLossCounter++;
+  }
+
+
+
+   //Check sync again
+  if ( currentStatus.hasSync == true )
+   {
+      //Locked timing during cranking. This is fixed at 10* BTDC.
+ //     if ( BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK) && configPage4.ignCranklock)
+ //     {
+ //       if( (toothCurrentCount == 1) || (toothCurrentCount == 7) ) { endCoil1Charge(); endCoil3Charge(); }
+ //       else if( (toothCurrentCount == 4) || (toothCurrentCount == 10) ) { endCoil2Charge(); endCoil4Charge(); }
+ //     }
+
+      //Set the last angle between teeth for better calc accuracy
+      if(toothCurrentCount == 1) { triggerToothAngle = 5; } //Special case for tooth 1
+      else if(toothCurrentCount == 2) { triggerToothAngle = 78; } //Special case for tooth 2
+      else { triggerToothAngle = toothAngles[(toothCurrentCount-1)] - toothAngles[(toothCurrentCount-2)]; }
+      triggerToothAngleIsCorrect = true;
+
+
+      //NEW IGNITION MODE
+      if( (configPage2.perToothIgn == true) && (!BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK)) ) 
+      {
+        int16_t crankAngle = toothAngles[(toothCurrentCount - 1)] + configPage4.triggerAngle;
+        if( (configPage4.sparkMode != IGN_MODE_SEQUENTIAL) )
+        {
+          crankAngle = ignitionLimits( toothAngles[(toothCurrentCount-1)] );
+
+          //Handle non-sequential tooth counts 
+          if( (configPage4.sparkMode != IGN_MODE_SEQUENTIAL) && (toothCurrentCount > 6) ) { checkPerToothTiming(crankAngle, (toothCurrentCount-6) ); }
+          else { checkPerToothTiming(crankAngle, toothCurrentCount); }
+        }
+        else{ checkPerToothTiming(crankAngle, toothCurrentCount); }
+      }
+    }
+  
+} 
+
+void triggerSec_SubaruImpreza()
+{
+  curTime2 = micros();
+  curGap2 = curTime2 - toothLastSecToothTime;
+    
+  toothLastSecToothTime = curTime2;
+  secondaryToothCount++;
+}
+
+
+uint16_t getRPM_SubaruImpreza()
+{
+  //if(currentStatus.RPM < currentStatus.crankRPM) { return crankingGetRPM(configPage4.triggerTeeth); }
+
+  uint16_t tempRPM = 0;
+  if(currentStatus.startRevolutions > 0)
+  {
+    //As the tooth count is over 360 degrees
+    tempRPM = stdGetRPM(360);
+  }
+  return tempRPM;
+}
+
+int getCrankAngle_SubaruImpreza()
+{
+  int crankAngle = 0;
+  if( currentStatus.hasSync == true )
+  {
+    //This is the current angle ATDC the engine is at. This is the last known position based on what tooth was last 'seen'. It is only accurate to the resolution of the trigger wheel (Eg 36-1 is 10 degrees)
+    unsigned long tempToothLastToothTime;
+    int tempToothCurrentCount;
+    //Grab some variables that are used in the trigger code and assign them to temp variables.
+    noInterrupts();
+    tempToothCurrentCount = toothCurrentCount;
+    tempToothLastToothTime = toothLastToothTime;
+    lastCrankAngleCalc = micros(); //micros() is no longer interrupt safe
+    interrupts();
+
+    crankAngle = toothAngles[(tempToothCurrentCount - 1)] + configPage4.triggerAngle; //Perform a lookup of the fixed toothAngles array to find what the angle of the last tooth passed was.
+
+    //Estimate the number of degrees travelled since the last tooth}
+    elapsedTime = (lastCrankAngleCalc - tempToothLastToothTime);
+    crankAngle += timeToAngle(elapsedTime, CRANKMATH_METHOD_INTERVAL_TOOTH);
+
+    if (crankAngle >= 720) { crankAngle -= 720; }
+    if (crankAngle > CRANK_ANGLE_MAX) { crankAngle -= CRANK_ANGLE_MAX; }
+    if (crankAngle < 0) { crankAngle += 360; }
+  }
+
+  return crankAngle;
+}
+
+
+
+void triggerSetEndTeeth_SubaruImpreza()
+{
+  /*
+  if(currentStatus.advance >= 10 ) 
+  { 
+    ignition1EndTooth = 7;
+    ignition2EndTooth = 4;
+    //ignition3EndTooth = 6;
+    //ignition4EndTooth = 9;
+  }
+  else 
+  { 
+    ignition1EndTooth = 1;
+    ignition2EndTooth = 5;
+    //ignition3EndTooth = 7;
+    //ignition4EndTooth = 10;
+  }
+    
+  lastToothCalcAdvance = currentStatus.advance;
+  */
+
+  byte toothAdder = 0, nCounter=0;
+
+  //Temp variables are used here to avoid potential issues if a trigger interrupt occurs part way through this function
+
+  int16_t tempIgnition1EndTooth;
+  tempIgnition1EndTooth = (ignition1EndAngle - configPage4.triggerAngle);
+
+  #ifdef MJRi
+  Serial3.print("1IgAng "); Serial3.print(tempIgnition1EndTooth);
+  #endif
+
+  for (nCounter = 0; nCounter < 7; nCounter++)
+  {
+    if(toothAngles[nCounter] > tempIgnition1EndTooth )
+    {
+      if(nCounter>1)
+        nCounter--;
+      else
+        nCounter = 6;
+      break;
+    }
+  }
+  ignition1EndTooth = nCounter;
+  #ifdef MJRi
+  Serial3.print(" IgET "); Serial3.print(toothAngles[nCounter]);
+  Serial3.println("");
+  #endif
+  
+
+
+  int16_t tempIgnition2EndTooth;
+  tempIgnition2EndTooth = (ignition2EndAngle - configPage4.triggerAngle);
+  #ifdef MJRi
+  Serial3.print("2IgAng "); Serial3.print(tempIgnition2EndTooth);
+  #endif
+   
+  for (nCounter = 0; nCounter < 7; nCounter++)
+  {
+    if(toothAngles[nCounter] > tempIgnition2EndTooth )
+    {
+      if(nCounter>1)
+        nCounter--;
+      else
+        nCounter = 6;
+      break;
+   }
+  }
+  ignition2EndTooth = nCounter;
+  #ifdef MJRi
+  Serial3.print(" IgET "); Serial3.print(toothAngles[nCounter]);
+  Serial3.println("");
+  #endif
+
 }

@@ -32,6 +32,7 @@
 #define DECODER_420A              18
 #define DECODER_WEBER             19
 #define DECODER_ST170             20
+#define DECODER_SUBARU_IMPREZA    21
 
 static inline void addToothLogEntry(unsigned long, bool);
 void loggerPrimaryISR();
@@ -184,6 +185,10 @@ void triggerSec_FordST170();
 uint16_t getRPM_FordST170();
 int getCrankAngle_FordST170();
 void triggerSetEndTeeth_FordST170();
+
+void triggerSetup_SubaruImpreza();
+void triggerPri_SubaruImpreza();
+void triggerSetEndTeeth_SubaruImpreza();
 
 
 extern void (*triggerHandler)(); //Pointer for the trigger function (Gets pointed to the relevant decoder)

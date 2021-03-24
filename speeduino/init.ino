@@ -3060,6 +3060,25 @@ void initialiseTriggers()
 
       break;
 
+    case DECODER_SUBARU_IMPREZA:
+      triggerSetup_SubaruImpreza();
+      triggerHandler = triggerPri_SubaruImpreza;
+      triggerSecondaryHandler = triggerSec_SubaruImpreza; // created to rule out problems with random crash after 3 then 4, then 3 then 4 teeth
+      decoderHasSecondary = false;
+      getRPM = getRPM_SubaruImpreza;
+      getCrankAngle = getCrankAngle_SubaruImpreza;
+      triggerSetEndTeeth = triggerSetEndTeeth_SubaruImpreza;
+
+      if(configPage4.TrigEdge == 0) { primaryTriggerEdge = RISING; } // Attach the crank trigger wheel interrupt (Hall sensor drags to ground when triggering)
+      else { primaryTriggerEdge = FALLING; }
+      secondaryTriggerEdge = FALLING;
+
+      attachInterrupt(triggerInterrupt, triggerHandler, primaryTriggerEdge);
+      attachInterrupt(triggerInterrupt2, triggerSecondaryHandler, secondaryTriggerEdge);
+      break;
+
+
+
     default:
       triggerHandler = triggerPri_missingTooth;
       getRPM = getRPM_missingTooth;
