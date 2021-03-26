@@ -1,4 +1,5 @@
 //#define MJR 1
+
 //#define MJRi 1
 
 /*
@@ -4300,25 +4301,16 @@ int getCrankAngle_SubaruImpreza()
 
 void triggerSetEndTeeth_SubaruImpreza()
 {
-  /*
-  if(currentStatus.advance >= 10 ) 
-  { 
-    ignition1EndTooth = 7;
-    ignition2EndTooth = 4;
-    //ignition3EndTooth = 6;
-    //ignition4EndTooth = 9;
-  }
-  else 
-  { 
-    ignition1EndTooth = 1;
-    ignition2EndTooth = 5;
-    //ignition3EndTooth = 7;
-    //ignition4EndTooth = 10;
-  }
-    
-  lastToothCalcAdvance = currentStatus.advance;
-  */
-
+/*
+  toothAngles[0] = 5;   //tooth #1 5   degrees 
+  toothAngles[1] = 83;  //tooth #2 83  degrees
+  toothAngles[2] = 115; //tooth #3 115 degrees
+  toothAngles[3] = 170; //tooth #4 170 degrees
+  toothAngles[4] = 263; //t5 263
+  toothAngles[5] = 295; //t6 295
+  toothAngles[6] = 350; //tooth #7 350 degrees
+*/
+  
   byte toothAdder = 0, nCounter=0;
 
   //Temp variables are used here to avoid potential issues if a trigger interrupt occurs part way through this function
@@ -4332,18 +4324,19 @@ void triggerSetEndTeeth_SubaruImpreza()
 
   for (nCounter = 0; nCounter < 7; nCounter++)
   {
-    if(toothAngles[nCounter] > tempIgnition1EndTooth )
+    if(toothAngles[nCounter] >= tempIgnition1EndTooth )
     {
-      if(nCounter>1)
-        nCounter--;
-      else
-        nCounter = 6;
       break;
     }
   }
+  if(nCounter == 0 || nCounter == 7)
+    nCounter = 6;
+  else
+    nCounter--;
+
   ignition1EndTooth = nCounter;
   #ifdef MJRi
-  Serial3.print(" IgET "); Serial3.print(toothAngles[nCounter]);
+  Serial3.print(" IgET "); Serial3.print(toothAngles[nCounter]);   Serial3.print(" Cnt "); Serial3.print(nCounter);
   Serial3.println("");
   #endif
   
@@ -4359,16 +4352,16 @@ void triggerSetEndTeeth_SubaruImpreza()
   {
     if(toothAngles[nCounter] > tempIgnition2EndTooth )
     {
-      if(nCounter>1)
-        nCounter--;
-      else
-        nCounter = 6;
       break;
-   }
+    }
   }
+  if(nCounter == 0 || nCounter == 7)
+    nCounter = 6;
+  else
+    nCounter--;
   ignition2EndTooth = nCounter;
   #ifdef MJRi
-  Serial3.print(" IgET "); Serial3.print(toothAngles[nCounter]);
+  Serial3.print(" IgET "); Serial3.print(toothAngles[nCounter]); Serial3.print(" Cnt "); Serial3.print(nCounter);
   Serial3.println("");
   #endif
 
