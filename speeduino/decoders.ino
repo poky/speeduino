@@ -4047,3 +4047,373 @@ void triggerSetEndTeeth_FordST170()
 
   lastToothCalcAdvance = currentStatus.advance;
 }
+
+
+//************************************************************************************************************************
+
+/*
+Name: Mitsubishi multiple trigger pattern decoder 
+Desc: A crank based trigger with a nominal 36 teeth, but with different gaps
+*/
+
+volatile unsigned long mitsubishiTeethSeen = 0; // used for flywheel gap pattern matching
+
+void triggerSetup_mitsubishi()
+{
+  for(toothOneTime = 0; toothOneTime < 10; toothOneTime++)   // repurpose variable temporarily to help clear ToothAngles.
+    { toothAngles[toothOneTime] = 0; }// Repurpose ToothAngles to store data needed for this implementation.
+ 
+  triggerFilterTime = (1000000 / (MAX_RPM / 60 * 36)); //Trigger filter time is the shortest possible time (in uS) that there can be between crank teeth (ie at max RPM). Any pulses that occur faster than this time will be disgarded as noise
+  triggerSecFilterTime = triggerFilterTime; // only 4 tooth on the wheel not 36 but two teeth really close together on 3a92 so use primary trigger value and update one we've found which pattern we're running
+
+  configPage4.triggerTeeth = 36;
+  triggerToothAngle = 360 / configPage4.triggerTeeth; //The number of degrees that passes from tooth to tooth 360 / 36 theortical teeth
+  triggerActualTeeth = 36; //The number of physical teeth on the wheel. Need to fix now so we can identify the wheel on the first rotation and not risk a  type 1 wheel not being spotted
+  secondDerivEnabled = false; 
+  decoderIsSequential = true;
+  toothLastMinusOneToothTime = 0;
+  toothCurrentCount = 0; // current tooth
+  secondaryToothCount = 0;
+//  secondaryLastToothCount = 0; 
+  toothOneTime = 0;
+  toothOneMinusOneTime = 0;
+  revolutionOne=0;
+  lastGap = 0;
+
+ // MAX_STALL_TIME = (3333UL * triggerToothAngle * 2); //Minimum 50rpm. (3333uS is the time per degree at 50rpm)
+
+}
+
+#define ID_TOOTH_PATTERN 0
+#define SKIP_TOOTH1 1
+#define SKIP_TOOTH2 2 
+#define SKIP_TOOTH3 3
+#define SKIP_TOOTH4 4
+
+
+void triggerPri_mitsubishi()
+{
+  curTime = micros();
+  curGap = curTime - toothLastToothTime;      
+
+  if ( curGap >= triggerFilterTime ) //Pulses should never be less than triggerFilterTime, so if they are it means a false trigger. (A 36-1 wheel at 8000pm will have triggers approx. every 200uS)
+  {
+    validTrigger = true; 
+    if( (toothLastToothTime > 0) && (toothLastMinusOneToothTime > 0) ) // have we seen more than 1 tooth so we start processing
+    {   
+      //Begin the missing tooth detection
+      targetGap = (3 * (toothLastToothTime - toothLastMinusOneToothTime)) >> 1;  //Multiply by 1.5 (Checks for a gap 1.5x greater than the last one) (Uses bitshift to multiply by 3 then divide by 2. Much faster than multiplying by 1.5)
+      currentStatus.hasSync = true;  
+
+      if ( curGap > targetGap) // we've found a gap
+      {
+        // is the gap a single or double gap?
+        if ( curGap > (targetGap + (toothLastToothTime - toothLastMinusOneToothTime)) ) // 2.5 times target gap ie more than 1 tooth sized gap
+        {
+          mitsubishiTeethSeen = mitsubishiTeethSeen << 3; // add the space for the gap and the tooth we've just seen so shift 2 bits
+          mitsubishiTeethSeen++; // add the tooth seen to the variable
+          //Serial3.print(" TC:"); Serial3.print(toothCurrentCount);
+          toothCurrentCount = toothCurrentCount + 3; // Increment the tooth counter on the wheel (used to spot a revolution)
+          toothSystemCount = toothSystemCount + 3;  // Increment the number of teeth seen (tooth & 2 missing tooth hence doing it three times)
+          //Serial3.print(" G3-TA:");Serial3.print(toothCurrentCount); Serial3.print(" ");Serial3.print(toothSystemCount);
+        }
+        else
+        {
+          mitsubishiTeethSeen = mitsubishiTeethSeen << 2; // add the space for the gap and the tooth we've just seen so shift 2 bits
+          mitsubishiTeethSeen++; // add the tooth seen to the variable
+          //Serial3.print(" TC:"); Serial3.print(toothCurrentCount);
+          toothCurrentCount = toothCurrentCount + 2; // Increment the tooth counter on the wheel (used to spot a revolution)
+          toothSystemCount = toothSystemCount + 2;  // Increment the number of teeth seen (tooth & missing tooth hence doing it twice)
+          //Serial3.print("G2-TA:");Serial3.print(toothCurrentCount); Serial3.print(" ");Serial3.print(toothSystemCount);
+        }
+          // fix the missing tooth gap messing up timing as it appears in different parts of the cycle. Don't update setFilter as it would be wrong with the gap, only do that with normal tooth
+        unsigned long tempTime=0;
+        triggerToothAngleIsCorrect = false;
+      }
+      else //Regular (non-missing) tooth so update things
+      {    
+        mitsubishiTeethSeen = mitsubishiTeethSeen << 1; // make a space, shift the bits 1 place to the left
+        mitsubishiTeethSeen++; // add the tooth seen
+        toothCurrentCount++; //Increment the tooth counter on the wheel (used to spot a revolution)
+        toothSystemCount++;  //// Increment the number of teeth seen
+        triggerToothAngleIsCorrect = true;
+        
+        setFilter(curGap);
+      }
+
+      // reduce checks to minimise cpu load when looking for key point to identify where we are on the wheel
+      if( toothCurrentCount >= 32)
+      {                       //1234567890123456789012345678901234567
+        if( mitsubishiTeethSeen == 0b11111111101111111111001111111111) // Binary pattern for trigger pattern 9-10--10- 3a92 matches to tooth 37 (1st tooth next rotation)
+        {
+          Serial3.print(" 3a92");
+          if(toothAngles[ID_TOOTH_PATTERN] != 4)
+          {
+            //teeth to skip when figuring out ignition events as they don't really exist (code fakes them)
+            toothAngles[SKIP_TOOTH1] = 15;
+            toothAngles[SKIP_TOOTH2] = 26;
+            toothAngles[SKIP_TOOTH3] = 27;
+            toothAngles[SKIP_TOOTH4] = 0;
+            toothAngles[ID_TOOTH_PATTERN] = 4;
+            configPage4.triggerMissingTeeth = 4; // this should be read in from the config file, but people could adjust it.
+            triggerActualTeeth = 36; // should be 32 if not hacking toothcounter 
+          }  
+          triggerMitsubishiCommon();
+        }                         //1234567890123456789012345678901234567
+        else if(mitsubishiTeethSeen == 0b11111111001111111111111111101111) // Binary pattern for trigger pattern 16--17- b411 matches to tooth 37
+        {
+          if(toothAngles[ID_TOOTH_PATTERN] != 3)
+          {
+            //teeth to skip when figuring out ignition events as they don't really exist (code fakes them)
+            toothAngles[SKIP_TOOTH1] = 14;
+            toothAngles[SKIP_TOOTH2] = 15;
+            toothAngles[SKIP_TOOTH3] = 33;
+            toothAngles[SKIP_TOOTH4] = 99;
+            toothAngles[ID_TOOTH_PATTERN] = 3;
+            configPage4.triggerMissingTeeth = 3; // this should be read in from the config file, but people could adjust it.
+            triggerActualTeeth = 36; // should be 32 if not hacking toothcounter 
+            triggerSecFilterTime = (1000000 / (MAX_RPM / 60)); // only 1 tooth on this cam, so update filter to reflect that.
+          } 
+          triggerMitsubishiCommon();                           
+        }
+
+      }
+      
+      if(toothSystemCount > triggerActualTeeth+1) // no patterns match after a rotation when we only need 32 teeth to match, we've lost sync
+      {
+        currentStatus.hasSync = false;
+        if(secondaryToothCount > 0)
+          BIT_SET(currentStatus.status3, BIT_STATUS3_HALFSYNC);
+        else
+          BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC);
+        currentStatus.syncLossCounter++;      
+        Serial3.println(" SyncLOSS");        
+      }
+      
+    }
+
+    toothLastMinusOneToothTime = toothLastToothTime;
+    toothLastToothTime = curTime;
+
+    //NEW IGNITION MODE
+    if( (configPage2.perToothIgn == true) && (!BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK)) ) 
+    {  
+      int16_t crankAngle = ( (toothCurrentCount-1) * triggerToothAngle ) + configPage4.triggerAngle;
+      crankAngle = ignitionLimits(crankAngle);
+      if( (configPage4.sparkMode == IGN_MODE_SEQUENTIAL) && (revolutionOne == true))
+      { crankAngle += 360; checkPerToothTiming(crankAngle, (configPage4.triggerTeeth + toothCurrentCount)); }
+      else
+      { checkPerToothTiming(crankAngle, toothCurrentCount); }
+    }     
+  }
+
+}
+
+void triggerMitsubishiCommon(void)
+{
+  if(toothCurrentCount != triggerActualTeeth+1)
+  { 
+    triggerToothAngleIsCorrect = false; 
+    Serial3.print("**TA Incorrect**"); Serial3.print(toothCurrentCount);Serial3.print(" "); Serial3.print(triggerActualTeeth+1);Serial3.println(" ");
+  }
+  else
+  { triggerToothAngleIsCorrect = true; }
+  
+  toothCurrentCount = 1;
+  toothSystemCount = 1; 
+         
+  //if Sequential fuel or ignition is in use, further checks are needed before determining sync
+  if( (configPage4.sparkMode == IGN_MODE_SEQUENTIAL) || (configPage2.injLayout == INJ_SEQUENTIAL) )
+  {
+    //If either fuel or ignition is sequential, only declare sync if the cam tooth has been seen OR if the missing wheel is on the cam
+    if( (secondaryToothCount > 0) || (configPage4.TrigSpeed == CAM_SPEED) )
+    {
+      currentStatus.hasSync = true;
+      BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC); //the engine is fully synced so clear the Half Sync bit
+      if(configPage4.trigPatternSec == SEC_TRIGGER_SINGLE) { secondaryToothCount = 0; } //Reset the secondary tooth counter to prevent it overflowing
+    }
+    else if(currentStatus.hasSync != true) { BIT_SET(currentStatus.status3, BIT_STATUS3_HALFSYNC); } //If there is primary trigger but no secondary we only have half sync.
+  }
+  else { currentStatus.hasSync = true;  BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC); } //If nothing is using sequential, we have sync and also clear half sync bit
+          
+  if(currentStatus.hasSync == true)
+  { currentStatus.startRevolutions++; }
+  else 
+  { currentStatus.startRevolutions = 0; }
+  
+
+  revolutionOne = !revolutionOne; //Flip sequential revolution tracker
+  toothOneMinusOneTime = toothOneTime;
+  toothOneTime = curTime;
+}
+
+
+int getCrankAngle_mitsubishi() 
+{
+    //This is the current angle ATDC the engine is at. This is the last known position based on what tooth was last 'seen'. It is only accurate to the resolution of the trigger wheel (Eg 36-1 is 10 degrees)
+    unsigned long tempToothLastToothTime;
+    int tempToothCurrentCount;
+    bool tempRevolutionOne;
+    //Grab some variables that are used in the trigger code and assign them to temp variables.
+    noInterrupts();
+    tempToothCurrentCount = toothCurrentCount;
+    tempRevolutionOne = revolutionOne;
+    tempToothLastToothTime = toothLastToothTime;
+    interrupts();
+
+    int crankAngle = ((tempToothCurrentCount - 1) * triggerToothAngle) + configPage4.triggerAngle; //Number of teeth that have passed since tooth 1, multiplied by the angle each tooth represents, plus the angle that tooth 1 is ATDC. This gives accuracy only to the nearest tooth.
+    
+    //Sequential check (simply sets whether we're on the first or 2nd revoltuion of the cycle)
+    if ( (tempRevolutionOne == true) && (configPage4.TrigSpeed == CRANK_SPEED) ) { crankAngle += 360; }
+
+    lastCrankAngleCalc = micros();
+    elapsedTime = (lastCrankAngleCalc - tempToothLastToothTime);
+    crankAngle += timeToAngle(elapsedTime, CRANKMATH_METHOD_INTERVAL_REV);
+
+    if (crankAngle >= 720) { crankAngle -= 720; }
+    else if (crankAngle > CRANK_ANGLE_MAX) { crankAngle -= CRANK_ANGLE_MAX; }
+    if (crankAngle < 0) { crankAngle += CRANK_ANGLE_MAX; }
+
+    return crankAngle;
+}
+
+
+// need to find the small gap and use that to ensure we know where we are on the 720 degree cycle, use the crank trigger gap to find the small gap on the cam.
+void triggerSec_mitsubishi() 
+{
+  curTime2 = micros();
+  curGap2 = curTime2 - toothLastSecToothTime;
+
+  //Safety check for initial startup
+  if( toothLastSecToothTime == 0)
+  { 
+    curGap2 = 0; 
+    triggerSecFilterTime = triggerFilterTime; // is gap greater than half gap on primary trigger (rules out random pulse) - using primary pulse as 4th tooth on crank has small gap which normal rules would miss
+  }
+
+  if ( curGap2 >= triggerSecFilterTime  ) 
+  {
+    if ( curGap2 < (toothLastSecToothTime >> 1)) // if gap is smaller than half last gap so can't be big gap so must be small gap we're lookig for
+    {
+      revolutionOne = 1; //Sequential revolution reset
+      triggerSecFilterTime = curGap >> 1; //Next secondary filter is half the current (small tooth) gap  
+      
+      //Record the VVT Angle
+      if( (configPage6.vvtEnabled > 0) && (revolutionOne == 1) )
+      {
+        int16_t curAngle;
+        curAngle = getCrankAngle();
+        while(curAngle > 360) { curAngle -= 360; }
+        curAngle -= configPage4.triggerAngle; //Value at TDC
+        if( configPage6.vvtMode == VVT_MODE_CLOSED_LOOP ) { curAngle -= configPage10.vvtCLMinAng; }
+
+        currentStatus.vvt1Angle = curAngle;
+      }
+    }
+    secondaryToothCount++;
+    toothLastSecToothTime = curTime2;
+  } //Trigger filter
+}
+
+uint16_t getRPM_mitsubishi() 
+{
+  uint16_t tempRPM = 0;
+
+  if( currentStatus.RPM < currentStatus.crankRPM)
+  {
+    if( (triggerToothAngleIsCorrect == true) && 
+        (toothCurrentCount != toothAngles[SKIP_TOOTH1]) && 
+        (toothCurrentCount != toothAngles[SKIP_TOOTH2]) && 
+        (toothCurrentCount != toothAngles[SKIP_TOOTH3]) && 
+        (toothCurrentCount != toothAngles[SKIP_TOOTH4]) )
+    { tempRPM = crankingGetRPM(36,360); }
+    else
+    { tempRPM = currentStatus.RPM; } //Can't do per tooth RPM as the missing tooth messes the calculation
+  }
+  else
+  { tempRPM = stdGetRPM(360); }
+  return tempRPM;
+}
+
+
+void triggerSetEndTeeth_mitsubishi()
+{
+  //Temp variables are used here to avoid potential issues if a trigger interrupt occurs part way through this function
+  int16_t tempIgnitionEndTooth[5]; // cheating with the array - location 1 is spark 1, location 0 not used.
+  
+  // mit3a92 firing order 132
+  // ignition events vs firing order 
+  // ignition 1 - Cylinder 1 approaching TDC
+  // ignition 2 - Cylinder 3 approaching TDC
+  // ignition 3 - Cylinder 2 approaching TDC
+  // ignition 4 - Cylinger 4 approaching TDC (only on 4 cylinder engines)
+  // need to ensure any teeth calculated are a gap as the code doesn't know about missing teeth on the wheel - remove 1 tooth from any gaps.
+
+
+  
+  byte toothAdder = 0;
+  if( (configPage4.sparkMode == IGN_MODE_SEQUENTIAL) && (configPage4.TrigSpeed == CRANK_SPEED) ) { toothAdder = configPage4.triggerTeeth; }
+
+  tempIgnitionEndTooth[1] = ( (ignition1EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) ) - 1;
+  if(tempIgnitionEndTooth[1] > (configPage4.triggerTeeth + toothAdder)) { tempIgnitionEndTooth[1] -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnitionEndTooth[1] <= 0) { tempIgnitionEndTooth[1] += (configPage4.triggerTeeth + toothAdder); }
+  if((uint16_t)tempIgnitionEndTooth[1] > (triggerActualTeeth + toothAdder)) { tempIgnitionEndTooth[1] = (triggerActualTeeth + toothAdder); }
+ 
+  tempIgnitionEndTooth[2] = ( (ignition2EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) ) - 1;
+  if(tempIgnitionEndTooth[2] > (configPage4.triggerTeeth + toothAdder)) { tempIgnitionEndTooth[2] -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnitionEndTooth[2] <= 0) { tempIgnitionEndTooth[2] += (configPage4.triggerTeeth + toothAdder); }
+  if((uint16_t)tempIgnitionEndTooth[2] > (triggerActualTeeth + toothAdder)) { tempIgnitionEndTooth[2] = (triggerActualTeeth + toothAdder); }
+ 
+  tempIgnitionEndTooth[3] = ( (ignition3EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) ) - 1;
+  if(tempIgnitionEndTooth[3] > (configPage4.triggerTeeth + toothAdder)) { tempIgnitionEndTooth[3] -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnitionEndTooth[3] <= 0) { tempIgnitionEndTooth[3] += (configPage4.triggerTeeth + toothAdder); }
+  if((uint16_t)tempIgnitionEndTooth[3] > (triggerActualTeeth + toothAdder)) { tempIgnitionEndTooth[3] = (triggerActualTeeth + toothAdder); }
+
+  tempIgnitionEndTooth[4] = ( (ignition4EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) ) - 1;
+  if(tempIgnitionEndTooth[4] > (configPage4.triggerTeeth + toothAdder)) { tempIgnitionEndTooth[4] -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnitionEndTooth[4] <= 0) { tempIgnitionEndTooth[4] += (configPage4.triggerTeeth + toothAdder); }
+  if((uint16_t)tempIgnitionEndTooth[4] > (triggerActualTeeth + toothAdder)) { tempIgnitionEndTooth[4] = (triggerActualTeeth + toothAdder); }
+
+
+  // take into account the missing teeth on the mit3a92 flywheels
+  int tempCount=0;
+ 
+  if(configPage4.sparkMode == IGN_MODE_SEQUENTIAL)
+  {
+    // check the calculated trigger tooth exists, if it doesn't use the previous tooth
+    // nb the toothAngles[x] holds the tooth after the gap, hence the '-1' to see if it matches a gap
+ 
+    for(tempCount=1;tempCount <5;tempCount++)
+    {
+      while(tempIgnitionEndTooth[tempCount] == (toothAngles[1]) || tempIgnitionEndTooth[tempCount] == (toothAngles[2]) ||
+         tempIgnitionEndTooth[tempCount] == (toothAngles[3]) || tempIgnitionEndTooth[tempCount] == (toothAngles[4]) ||
+         tempIgnitionEndTooth[tempCount] == (configPage4.triggerTeeth + toothAngles[1]) || tempIgnitionEndTooth[tempCount] == (configPage4.triggerTeeth + toothAngles[2]) ||
+         tempIgnitionEndTooth[tempCount] == (configPage4.triggerTeeth + toothAngles[3]) || tempIgnitionEndTooth[tempCount] == (configPage4.triggerTeeth + toothAngles[4])  )
+      { tempIgnitionEndTooth[tempCount]--; }
+    }
+  }
+  else
+  {
+    for(tempCount=1;tempCount<5;tempCount++)
+    {
+      while(tempIgnitionEndTooth[tempCount] == (toothAngles[1]) || tempIgnitionEndTooth[tempCount]== (toothAngles[2]) )
+      {
+        tempIgnitionEndTooth[tempCount]--;  
+      }
+    }
+  }
+
+//Serial3.print("IG1:"); Serial3.print(tempIgnitionEndTooth[1]); Serial3.print("EA:"); Serial3.print(ignition1EndAngle); Serial3.println("");
+//Serial3.print("IG2:"); Serial3.print(tempIgnitionEndTooth[2]); Serial3.print("EA:"); Serial3.print(ignition2EndAngle); Serial3.println("");
+//Serial3.print("IG3:"); Serial3.print(tempIgnitionEndTooth[3]); Serial3.print("EA:"); Serial3.print(ignition3EndAngle); Serial3.println("");
+//Serial3.print("IG4:"); Serial3.print(tempIgnitionEndTooth[4]); Serial3.print("EA:"); Serial3.print(ignition4EndAngle); Serial3.println(""); Serial3.println("");
+
+
+
+  ignition1EndTooth = tempIgnitionEndTooth[1];  
+  ignition2EndTooth = tempIgnitionEndTooth[2];
+  ignition3EndTooth = tempIgnitionEndTooth[3];
+  ignition4EndTooth = tempIgnitionEndTooth[4];
+
+  lastToothCalcAdvance = currentStatus.advance;
+}

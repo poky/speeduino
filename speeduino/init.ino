@@ -3060,6 +3060,26 @@ void initialiseTriggers()
 
       break;
 
+    case DECODER_MITSUBISHI:
+      triggerSetup_mitsubishi();
+      triggerHandler = triggerPri_mitsubishi;
+      triggerSecondaryHandler = triggerSec_mitsubishi;
+      decoderHasSecondary = true;
+      getRPM = getRPM_mitsubishi;
+      getCrankAngle = getCrankAngle_mitsubishi;
+      triggerSetEndTeeth = triggerSetEndTeeth_mitsubishi;
+
+      if(configPage4.TrigEdge == 0) { primaryTriggerEdge = RISING; } // Attach the crank trigger wheel interrupt (Hall sensor drags to ground when triggering)
+      else { primaryTriggerEdge = FALLING; }
+      if(configPage4.TrigEdgeSec == 0) { secondaryTriggerEdge = RISING; }
+      else { secondaryTriggerEdge = FALLING; }
+
+      attachInterrupt(triggerInterrupt, triggerHandler, primaryTriggerEdge);
+      attachInterrupt(triggerInterrupt2, triggerSecondaryHandler, secondaryTriggerEdge);
+
+      break;
+
+
     default:
       triggerHandler = triggerPri_missingTooth;
       getRPM = getRPM_missingTooth;
