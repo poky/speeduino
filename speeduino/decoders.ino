@@ -4102,13 +4102,25 @@ void triggerPri_mitsubishi()
     if( (toothLastToothTime > 0) && (toothLastMinusOneToothTime > 0) ) // have we seen more than 1 tooth so we start processing
     {   
       //Begin the missing tooth detection
-      targetGap = (3 * (toothLastToothTime - toothLastMinusOneToothTime)) >> 1;  //Multiply by 1.5 (Checks for a gap 1.5x greater than the last one) (Uses bitshift to multiply by 3 then divide by 2. Much faster than multiplying by 1.5)
+      if (currentStatus.RPM < 800)
+      {
+        // starter struggles when cranking to maintain gap greater than 2.5 for double missing tooth due to compression stroke at this point
+        // bit shift >>2 is 25% of value, bit shift >>3 is 12%, bit shift >>4 is 6%
+        // min value seen is 2.41 so aiming for anything greater than 2.31
+        targetGap = (toothLastToothTime - toothLastMinusOneToothTime) + 
+                    ((toothLastToothTime - toothLastMinusOneToothTime) >> 2) + 
+                    ((toothLastToothTime - toothLastMinusOneToothTime) >> 4);  
+      }
+      else
+      {
+        targetGap = (3 * (toothLastToothTime - toothLastMinusOneToothTime)) >> 1;  //Multiply by 1.5 (Checks for a gap 1.5x greater than the last one) (Uses bitshift to multiply by 3 then divide by 2. Much faster than multiplying by 1.5)
+      }
       currentStatus.hasSync = true;  
 
       if ( curGap > targetGap) // we've found a gap
       {
         // is the gap a single or double gap?
-        if ( curGap > (targetGap + (toothLastToothTime - toothLastMinusOneToothTime)) ) // 2.5 times target gap ie more than 1 tooth sized gap
+        if ( curGap > (targetGap + (toothLastToothTime - toothLastMinusOneToothTime)) )
         {
           mitsubishiTeethSeen = mitsubishiTeethSeen << 3; // add the space for the gap and the tooth we've just seen so shift 2 bits
           mitsubishiTeethSeen++; // add the tooth seen to the variable
@@ -4138,16 +4150,16 @@ void triggerPri_mitsubishi()
 
       // reduce checks to minimise cpu load when looking for key point to identify where we are on the wheel
       if( toothCurrentCount >= 32)
-      {                       //1234567890123456789012345678901234567
-        if( mitsubishiTeethSeen == 0b11101111111111100111111111101111) // Binary pattern for trigger pattern 9-10--10- 3a92 matches to tooth 37 (1st tooth next rotation)
+      {                        //1234567890123456789012345678901234567
+        if( mitsubishiTeethSeen == 0b11111101111111111101111111111001) // Binary pattern for trigger pattern 9-10--10- 3a92 matches to tooth 37 (1st tooth next rotation)
         {
           if(toothAngles[ID_TOOTH_PATTERN] != 4)
           {
             //teeth to skip when figuring out ignition events as they don't really exist 
-            toothAngles[SKIP_TOOTH1] = 15;
-            toothAngles[SKIP_TOOTH2] = 26;
-            toothAngles[SKIP_TOOTH3] = 27;
-            toothAngles[SKIP_TOOTH4] = 0;
+            toothAngles[SKIP_TOOTH1] = 11;
+            toothAngles[SKIP_TOOTH2] = 23;
+            toothAngles[SKIP_TOOTH3] = 34;
+            toothAngles[SKIP_TOOTH4] = 35;
             toothAngles[ID_TOOTH_PATTERN] = 4;
             configPage4.triggerMissingTeeth = 4; // this should be read in from the config file, but people could adjust it.
             triggerActualTeeth = 36; // should be 32 if not hacking toothcounter 
