@@ -4126,6 +4126,7 @@ void triggerPri_mitsubishi()
           mitsubishiTeethSeen++; // add the tooth seen to the variable
           toothCurrentCount = toothCurrentCount + 3; // Increment the tooth counter on the wheel (used to spot a revolution)
           toothSystemCount = toothSystemCount + 3;  // Increment the number of teeth seen (tooth & 2 missing tooth hence doing it three times)
+          //Serial3.print(" D");Serial3.print(toothCurrentCount);
         }
         else
         {
@@ -4133,6 +4134,7 @@ void triggerPri_mitsubishi()
           mitsubishiTeethSeen++; // add the tooth seen to the variable
           toothCurrentCount = toothCurrentCount + 2; // Increment the tooth counter on the wheel (used to spot a revolution)
           toothSystemCount = toothSystemCount + 2;  // Increment the number of teeth seen (tooth & missing tooth hence doing it twice)
+          //Serial3.print(" S");Serial3.print(toothCurrentCount);
         }
           // fix the missing tooth gap messing up timing as it appears in different parts of the cycle. Don't update setFilter as it would be wrong with the gap, only do that with normal tooth
         unsigned long tempTime=0;
@@ -4151,15 +4153,17 @@ void triggerPri_mitsubishi()
       // reduce checks to minimise cpu load when looking for key point to identify where we are on the wheel
       if( toothCurrentCount >= 32)
       {                        //1234567890123456789012345678901234567
+        //Serial3.print(" *");
         if( mitsubishiTeethSeen == 0b11111101111111111101111111111001) // Binary pattern for trigger pattern 9-10--10- 3a92 matches to tooth 37 (1st tooth next rotation)
         {
+//          Serial3.println(" R");
           if(toothAngles[ID_TOOTH_PATTERN] != 4)
           {
             //teeth to skip when figuring out ignition events as they don't really exist 
-            toothAngles[SKIP_TOOTH1] = 11;
-            toothAngles[SKIP_TOOTH2] = 23;
-            toothAngles[SKIP_TOOTH3] = 34;
-            toothAngles[SKIP_TOOTH4] = 35;
+            toothAngles[SKIP_TOOTH1] = 12;
+            toothAngles[SKIP_TOOTH2] = 24;
+            toothAngles[SKIP_TOOTH3] = 35;
+            toothAngles[SKIP_TOOTH4] = 36;
             toothAngles[ID_TOOTH_PATTERN] = 4;
             configPage4.triggerMissingTeeth = 4; // this should be read in from the config file, but people could adjust it.
             triggerActualTeeth = 36; // should be 32 if not hacking toothcounter 
@@ -4287,18 +4291,28 @@ void triggerSec_mitsubishi()
   curTime2 = micros();
   curGap2 = curTime2 - toothLastSecToothTime;
 
+//  Serial3.print(" C0:");Serial3.print(curGap2);Serial3.print(":");Serial3.print(curTime2);Serial3.print(":");Serial3.print((toothLastSecToothTime));
+
   //Safety check for initial startup
   if( toothLastSecToothTime == 0)
   { 
-    curGap2 = 0; 
-    triggerSecFilterTime = triggerFilterTime; // is gap greater than half gap on primary trigger (rules out random pulse) - using primary pulse as 4th tooth on 3a92 crank has small gap which normal rules would miss
-  }
-
-  if ( curGap2 >= triggerSecFilterTime  ) 
-  {
+    curGap2 = 1; 
     if(configPage4.trigPatternSec == SEC_TRIGGER_SINGLE)
     {
-      // 4b11 pattern with horseshoe cam
+      triggerSecFilterTime = 0; // default value to trigger code on startup
+    }
+    else
+    {
+      triggerSecFilterTime = 1000000; // default large value to trigger code on startup
+    }
+    toothLastSecToothTime = curTime2; // set up the variable so this code isn't called again
+  }
+
+  if(configPage4.trigPatternSec == SEC_TRIGGER_SINGLE)
+  {
+    // 4b11 pattern with horseshoe cam
+    if ( curGap2 >= triggerSecFilterTime  ) 
+    { 
       revolutionOne = 1;
 
       triggerSecFilterTime = curGap2 >> 1; 
@@ -4317,13 +4331,21 @@ void triggerSec_mitsubishi()
       secondaryToothCount++;
       toothLastSecToothTime = curTime2;
     }
-    else
+  }
+  else
+  {
+    // 3A92
+    /* logic
+     * Set filter to be half small gap to ensure every tooth triggers secondary code - need to ensure if first trigger found on startup is large gap on cam we use something smaller, 
+       so use crank gap as that runs double the speed with similar sized teeth
+     * Once we've got our gap detection setup need to establish is the gap is the large gap between teeth or the small gap.
+     */
+
+    if ( curGap2 >= targetGap) 
     {
-      // 3a92 
-      if ( curGap2 < (toothLastSecToothTime >> 1)) // if gap is smaller than half last gap so can't be big gap so must be small gap we're lookig for
+      if ( curGap2 < triggerSecFilterTime ) // is the gap smaller than half last gap - so can't be big gap so must be small gap we're lookig for
       {
         revolutionOne = 1; //Sequential revolution reset
-        triggerSecFilterTime = curGap2 >> 1; //Next secondary filter is half the current (small tooth) gap  
         //Record the VVT Angle
         if( (configPage6.vvtEnabled > 0) && (revolutionOne == 1) )
         {
@@ -4335,9 +4357,14 @@ void triggerSec_mitsubishi()
 
           currentStatus.vvt1Angle = curAngle;
         }
-        secondaryToothCount++;
-        toothLastSecToothTime = curTime2;
+        secondaryToothCount++;        
       }
+      else
+      {
+        // only set if we've had a big gap - means we should always find the small gap for the tooth we're looking for
+        triggerSecFilterTime = curGap2 >> 1; // Next secondary filter is half the current gap  
+      }
+      toothLastSecToothTime = curTime2;
     }
   } //Trigger filter
 }
@@ -4368,7 +4395,7 @@ void triggerSetEndTeeth_mitsubishi()
   //Temp variables are used here to avoid potential issues if a trigger interrupt occurs part way through this function
   int16_t tempIgnitionEndTooth[5]; // cheating with the array - location 1 is spark 1, location 0 not used.
   
-  // mit3a92 firing order 132
+  // mitsubishi 3a92 firing order 132
   // ignition events vs firing order 
   // ignition 1 - Cylinder 1 approaching TDC
   // ignition 2 - Cylinder 3 approaching TDC
