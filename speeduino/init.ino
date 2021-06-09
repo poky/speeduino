@@ -3068,7 +3068,7 @@ void initialiseTriggers()
       getRPM = getRPM_RoverMEMS;
       triggerSetEndTeeth = triggerSetEndTeeth_RoverMEMS;
             
-      triggerSecondaryHandler = triggerSec_missingTooth; 
+      triggerSecondaryHandler = triggerSec_RoverMEMS; 
       getCrankAngle = getCrankAngle_missingTooth;   
 
       if(configPage4.TrigEdge == 0) { primaryTriggerEdge = RISING; } // Attach the crank trigger wheel interrupt (Hall sensor drags to ground when triggering)

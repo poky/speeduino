@@ -344,6 +344,7 @@ void loop()
           } //Channel type
         } //For loop going through each channel
       } //aux channels are enabled
+      
     } //4Hz timer
     if (BIT_CHECK(LOOP_TIMER, BIT_TIMER_1HZ)) //Once per second)
     {
