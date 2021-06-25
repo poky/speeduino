@@ -4129,7 +4129,7 @@ void triggerSetEndTeeth_FordST170()
 
   lastToothCalcAdvance = currentStatus.advance;
 }
-<<<<<<< HEAD
+/** @} */
 
 
 /*****************************************************************
@@ -4141,10 +4141,10 @@ void triggerSetEndTeeth_FordST170()
  * 2 gap 14 gap 3 gap 13 gap 
  * 17 gap 17 gap 
  *
- * CAM trigger will be based on half moon - so one tooth rotating at half engine speed. It will not cover the sintered quaderant cam with different teeth patterns per quaderant.
- * Currently missing
- *  some code optomisation (some code deliberately in two places to aid readability)
- *  17-17- pattern, needs extra variable to track gaps so we only rotate on the second gap & this needs to be set up in sync with the CAM
+ * Support no cam, single tooth Cam (or half moon cam), and multi tooth (5-3-2 teeth)
+ *
+ * @defgroup dec_rover_mems Rover MEMS all versions including T Series, O Series, Mini and K Series
+ * @{
  */
  
 volatile unsigned long roverMEMSTeethSeen = 0; // used for flywheel gap pattern matching
@@ -4414,8 +4414,8 @@ void triggerSec_RoverMEMS()
         // gap either single or double - nb remember we've got the tooth after the gap, so on the 5 tooth pattern we'll see here tooth 6
         if(secondaryToothCount == 6)
         {
-          // if we've got the tooth after the gap from reading 5 teeth we're on cycle 0-360 & tooth 18-36
-          revolutionOne = true;
+          // if we've got the tooth after the gap from reading 5 teeth we're on cycle 360-720 & tooth 18-36
+          revolutionOne = false;
           if(toothCurrentCount < 19)
           {
             toothCurrentCount += 18;
@@ -4423,8 +4423,8 @@ void triggerSec_RoverMEMS()
         }
         else if (secondaryToothCount == 4)
         {
-          // if we've got the tooth after the gap from reading 3 teeth we're on cycle 360-720 & tooth 1-18
-          revolutionOne = false;
+          // we've got the tooth after the gap from reading 3 teeth we're on cycle 0-360 & tooth 1-18
+          revolutionOne = true;
           if(toothCurrentCount > 17)
           {
             toothCurrentCount -= 18;
@@ -4432,8 +4432,8 @@ void triggerSec_RoverMEMS()
         }
         else if (secondaryToothCount == 3)
         {
-          // if we've got the tooth after the gap from reading 2 teeth we're on cycle 360-720 & tooth 18-36
-          revolutionOne = false;
+          // if we've got the tooth after the gap from reading 2 teeth we're on cycle 0-360 & tooth 18-36
+          revolutionOne = true;
           if(toothCurrentCount < 19)
           {
             toothCurrentCount += 18;
@@ -4539,7 +4539,6 @@ void triggerSetEndTeeth_RoverMEMS()
   lastToothCalcAdvance = currentStatus.advance;
 
 }
-=======
+/** @} */
 /** @} */
 
->>>>>>> master
