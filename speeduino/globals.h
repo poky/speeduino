@@ -1051,7 +1051,7 @@ struct config6 {
   byte flatSEnable : 1; ///< Flat shift enable
   byte baroPin : 4;
   byte flatSSoftWin;
-  byte flatSRetard;
+  int8_t flatSRetard;
   byte flatSArm;
 
   byte iacCLValues[10]; //Closed loop target RPM value
